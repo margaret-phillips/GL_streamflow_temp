@@ -19,6 +19,8 @@ library(imputeTS)
 ft3_per_ML<- 35314.6667 #conversion factor for ft3 to megaliters
 sec_per_day<- 86400 #conversion factor for seconds per day
 km2_per_mi2<- 2.58998811 #square km per sq mile
+ft2_per_km2<- 1.0764E+7 #square ft per sq kilometer
+mm_per_ft<- 304.8 #mm per foot
 
 ##---------------requesting data for USGS sites with daymet data-------------####
 daymet_sites<- readRDS("daymet_sites_summary.RDS") #these are GL sites with daymet data from 1980 to 2022
@@ -307,9 +309,40 @@ cleaned_meta<- meta %>%
 cleaned_gagesii_GL<- gagesii_GL %>% 
   filter(monitoring_location_id%in%acceptable_sites)
 
-## LEFT OFF HERE!!!
+
 #flow depth per day (annual)
 cleaned_dv_qDepth_annual<- cleaned_dv_q_annual %>% 
-  left_join(regulation_filtered %>% select(monitoring_location_id, rep_drainage_area), by= "monitoring_location_id") %>% 
+  left_join(regulation_filtered %>% select(monitoring_location_id, rep_drainage_area), by= "monitoring_location_id") %>%
+  mutate(daily_depth_mm= q * sec_per_day/ (rep_drainage_area * ft2_per_km2) * mm_per_ft)
+
+#ws q--just filtering to sites that meet dam storage criteria (not too regulated):
+cleaned_dv_q_ws<- dv_q_ws %>% 
+  filter(monitoring_location_id%in%acceptable_sites)
+
+#ws flow depth per day
+cleaned_dv_qDepth_ws<- cleaned_dv_qDepth_annual %>% 
+  filter(month%in%winter_spring)
+
   
 #now save the interpolated complete datasets to be used for running functions (and save versions with flow DEPTH)
+
+#function to save dataframes to output directory as RDS objects for easy re-loading
+save_rds <- function(out_dir, ...) {
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  purrr::iwalk(
+    list(...),
+    ~ saveRDS(.x, file.path(out_dir, paste0(.y, ".rds")))
+  )
+}
+
+#calling fn for cleaned and filtered dfs
+save_rds(
+  out_dir = "data/processed",
+  cleaned_dv_q_annual = cleaned_dv_q_annual,
+  cleaned_meta = cleaned_meta,
+  cleaned_gagesii_GL= cleaned_gagesii_GL,
+  cleaned_dv_qDepth_annual = cleaned_dv_qDepth_annual,
+  cleaned_dv_q_ws = cleaned_dv_q_ws,
+  cleaned_dv_qDepth_ws = cleaned_dv_qDepth_ws
+)
