@@ -97,7 +97,11 @@ dup_check <- dv_tw_filtered %>% #temporary dv
   filter(n > 1)
 dup_check  # should be empty
 
-##-------------------------require 300 days of data per water year, remove site years with long gaps-----------####
+
+
+##--------------------------------re-doing completeness criteria w monthly scale-----------------####
+#group by month and require 20 or more days per month and consecutive gaps of 5 days or less
+
 #at this point, dataframe should be de-duplicated, but doesn't need to be filtered to adequate data yet
 
 dv_tw_full <- dv_tw_filtered %>%
@@ -112,11 +116,16 @@ dv_tw_full <- dv_tw_filtered %>%
   group_by(monitoring_location_id, water_year) %>% #GROUP BY WY
   
   # create complete daily sequence within each site-year
+  
   complete(
-    time = seq(min(time), max(time), by = "day")
+    time = seq(
+      floor_date(min(time), "month"),
+      ceiling_date(max(time), "month") - days(1), #need to do this so that gaps at beginning or end of month are counted!
+      by = "day"
+    )
   ) %>%
   
-  #refill metadata columns first (better than interpolating Q first)
+  #refill metadata columns first (better than interpolating tw first)
   fill(
     parameter_code,
     statistic_id,
@@ -126,11 +135,21 @@ dv_tw_full <- dv_tw_filtered %>%
     .direction = "downup"
   ) %>%
   
+  
+  mutate(
+    year = year(time),
+    month = month(time),
+    water_year = ifelse(month >= 10, year + 1, year),
+    wy_doy = as.integer(time - ymd(paste0(water_year - 1, "-10-01"))) + 1
+  ) %>% #needed to re-derive this once filled!
+  
+  
   ungroup()
 
 #calculate coverage and longest NA gap
-site_year_summary <- dv_tw_full %>%
-  group_by(monitoring_location_id, water_year) %>%
+site_year_summary_month <- dv_tw_full %>%
+  filter(water_year<= 2022) %>% 
+  group_by(monitoring_location_id, water_year, month) %>%
   summarize(
     
     #number of non-NA discharge values
@@ -144,23 +163,17 @@ site_year_summary <- dv_tw_full %>%
     
     .groups = "drop"
   )
+#need to filter this df and semi-join so that acceptable months at a site are kept..
 
-
-#Keep only good site-years
-# at least 300 observed days
+#Keep only good months
+# at least 20 observed days per month
 # no NA gaps > 5 days
+##this is all the same as above, but re-doing this part at monthly scale instead:
 
-good_site_years <- site_year_summary %>%
-  filter(
-    n_obs >= 250,
-    max_gap <= 30 #some gages are operated seasonally... toss out months with inadequate data? or require completeness march- nov?
-  )
 
-dv_tw_adequate_data <- dv_tw_full %>%
-  semi_join(
-    good_site_years,
-    by = c("monitoring_location_id", "water_year")
-  )
+
+#need to join to create a dataframe that meets completeness criteria for interpolation, etc below!!
+#OR: several dataframes? one annual, one summer.. to optimize available data
 
 
 ##-------------------------------filter to sites with at least 11 yrs of data-----------------####
@@ -178,7 +191,7 @@ dv_tw_adequate_data %>%
 #this function interpolates gaps with linear interpolation or with PCA depending on
 #the amount of correlated data available
 hybrid_impute_tw <- function(df,
-                             maxgap = 7, #originally set this to 5--can iterate on this number
+                             maxgap = 5, #originally set this to 5--can iterate on this number
                              min_sites = 3,
                              min_overlap = 0.3,
                              ncp = 2) {
@@ -276,3 +289,22 @@ df_tw_interp <- hybrid_impute_tw(dv_tw_adequate_data) #calling the fn on the fil
 df_tw_interp %>% 
   summarise(n_sites= n_distinct(monitoring_location_id))
 
+##-------------------------PROB GET RID OF THIS: require 300 days of data per water year, remove site years with long gaps-----------####
+#at this point, dataframe should be de-duplicated, but doesn't need to be filtered to adequate data yet
+
+
+#Keep only good site-years
+# at least 300 observed days
+# no NA gaps > 5 days
+
+good_site_years <- site_year_summary %>%
+  filter(
+    n_obs >= 200,
+    max_gap <= 170 #some gages are operated seasonally... toss out months with inadequate data? or require completeness march- nov?
+  )
+
+dv_tw_adequate_data <- dv_tw_full %>%
+  semi_join(
+    good_site_years,
+    by = c("monitoring_location_id", "water_year")
+  )
