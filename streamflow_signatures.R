@@ -13,32 +13,14 @@ library(lubridate)
 library(slider)
 
 #loading in saved discharge df:
-#required columns: q, daily_depth_mm, monitoring_location_id, water_year, doy (day of year)
+#required columns: q, daily_depth_mm, monitoring_location_id, water_year, doy (day of year), wy_doy
 cleaned_dv_qDepth_annual<- readRDS("data/processed/cleaned_dv_qDepth_annual.rds")
+cleaned_dv_qDepth_annual<- cleaned_dv_qDepth_annual %>% 
+  group_by(monitoring_location_id, water_year) %>% 
+  mutate(wy_doy= row_number())
 
 
 ##--------streamflow magnitude-----------------------------------------------####
-
-#this function computes annual flow depth in mm for every site year
-
-calculate_flow_depth<- function(Q_data, save_path= NULL){
-  output_df<- Q_data %>% 
-    group_by(monitoring_location_id, water_year) %>% 
-    summarise(
-      annual_depth= sum(daily_depth_mm),
-      .groups= "drop") %>% 
-    arrange(monitoring_location_id, water_year)
-  
-  if (!is.null(save_path)) {
-    saveRDS(output_df, save_path)
-  }
-  return(output_df)
-}
-
-calculate_flow_depth(cleaned_dv_qDepth_annual, save_path = NULL) #calling the fn
-
-
-
 
 #this function computes flow quartiles for every site year using daily flow depth in mm
 calculate_percentiles<- function(Q_data, save_path){
@@ -72,7 +54,7 @@ calculate_percentiles(cleaned_dv_qDepth_annual, save_path= NULL) #calling the fn
 # this function calculates the slope of the flow duration curve and low, mid, and high range
 # slopes for every site year
 calculate_FDC <- function(Q_data, save_path,
-                        min_n = 10,
+                        min_n = 10, #should increase this
                         high_range = c(0.00, 0.20),
                         mid_range  = c(0.20, 0.80),
                         low_range  = c(0.90, 1.00)) {
@@ -147,19 +129,20 @@ calculate_FDC(cleaned_dv_qDepth_annual, save_path= NULL) #calling the fn
 
 #CV, IQD, seasonality index
 
-#this function computes center of volume and inter-quartile distance which are measures
+#this function computes flow depth, center of volume, and inter-quartile distance which are measures
 #of flow timing and protractedness using daily flow depth in mm.
-calculate_CV_IQD <- function(Q_data, meta_data, save_path = NULL) {
+# add a version that does winter-spring timing??
+calculate_CV_IQD <- function(Q_data, save_path = NULL) {
   #calculate annual totals first: sum up the daily depths for winter-spring of every site year
   annual_totals<- Q_data %>% 
-    group_by(monitoring_location_id, year) %>% 
+    group_by(monitoring_location_id, water_year) %>% 
     summarise(annual_depth_mm= sum(daily_depth_mm))
   # then join to daily 
-  #this is returned, but not saved to the path
+
   daily_frac <- Q_data %>%
-    left_join(annual_totals, by = c("monitoring_location_id", "year")) %>%
-    arrange(monitoring_location_id, year, doy) %>%
-    group_by(monitoring_location_id, year) %>%
+    left_join(annual_totals, by = c("monitoring_location_id", "water_year")) %>%
+    arrange(monitoring_location_id, water_year, wy_doy) %>%
+    group_by(monitoring_location_id, water_year) %>%
     mutate(
       frac_annual_qDepth = daily_depth_mm / annual_depth_mm,
       cum_frac_flow = cumsum(frac_annual_qDepth)
@@ -168,28 +151,27 @@ calculate_CV_IQD <- function(Q_data, meta_data, save_path = NULL) {
   #cv and iqd
   flow_timing <- daily_frac %>%
     summarise(
-      doy_25 = doy[which(cum_frac_flow >= 0.25)[1]],
-      CV = doy[which(cum_frac_flow >= 0.50)[1]],
-      doy_75 = doy[which(cum_frac_flow >= 0.75)[1]],
+      doy_25 = wy_doy[which(cum_frac_flow >= 0.25)[1]],
+      CV = wy_doy[which(cum_frac_flow >= 0.50)[1]],
+      doy_75 = wy_doy[which(cum_frac_flow >= 0.75)[1]],
       IQD = doy_75 - doy_25,
       .groups = "drop"
     )
   
   output_df <- annual_totals %>%
-    left_join(flow_timing, by = c("monitoring_location_id", "year")) %>%
-    arrange(monitoring_location_id, year)
+    left_join(flow_timing, by = c("monitoring_location_id", "water_year")) %>%
+    arrange(monitoring_location_id, water_year) %>% 
+    select(c= -doy_25, -doy_75)
   
   if (!is.null(save_path)) {
     saveRDS(output_df, save_path)
   }
   
-  return(list(
-    annual_metrics = output_df,
-    daily_metrics = daily_frac #maybe remove this from return statement..?
-  ))
+  return(output_df)
+
 }
 
-calculate_CV_IQD(cleaned_dv_qDepth_ws, save_path = NULL) #calling function
+calculate_CV_IQD(cleaned_dv_qDepth_annual, save_path = NULL) #calling function
 
 
 
@@ -213,6 +195,7 @@ calculate_q_seasonality <- function(Q_data, save_path = NULL) {
         sum(abs(month_mean - (Qa / 12)), na.rm = TRUE) * (1 / Qa),
       .groups = "drop"
     ) %>%
+    select(-Qa) %>% 
     
     arrange(monitoring_location_id, water_year)
   
@@ -248,7 +231,7 @@ calculate_flow_pulses <- function(Q_data, save_path = NULL) {
     
     # counting both increase to decrease and decrease to increase
     summarise(
-      flow_reversals = sum(
+      two_pct_pulses = sum(
         (prev_direction == 1 & direction == -1) |
           (prev_direction == -1 & direction == 1),
         na.rm = TRUE
@@ -281,7 +264,8 @@ calculate_flashiness <- function(Q_data, save_path = NULL) {
       den = sum(q,  na.rm = TRUE),
       rb_index = if_else(den > 0, num / den, NA_real_),
       .groups = "drop"
-    )
+    ) %>% 
+    select(c= -num, -den) #only want to return rb index, wy, and site id
   
   
   if (!is.null(save_path)) saveRDS(output_df, save_path)

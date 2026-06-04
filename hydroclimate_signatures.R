@@ -22,7 +22,7 @@ calculate_air_temp<- function(climate_data, save_path= NULL){
   output_df<- climate_data %>% 
     group_by(monitoring_location_id) %>% 
     mutate(tavg= (tmin + tmax)/2) %>% 
-    group_by(monitoring_location_id, year) %>% 
+    group_by(monitoring_location_id, water_year) %>% 
     summarise(tmin= min(tmin),
               tmax= max(tmax),
               tavg= mean(tavg))
@@ -44,7 +44,7 @@ calculate_spring_days<- function(climate_data, save_path= NULL){
   Tdamage<- -2.2
   
   output_df<- climate_data %>% 
-    group_by(monitoring_location_id, year) %>% 
+    group_by(monitoring_location_id, water_year) %>% 
     summarise(
       growing_deg = sum(pmax(tmin - Tgrow, 0), na.rm = TRUE), #cumulative degrees above 5C
       last_damage_day = max(doy[tmin < Tdamage], na.rm = TRUE), #doy that corresponds to last value below -2.2C
@@ -67,7 +67,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
   
   output_df <- climate_data %>%
     
-    group_by(monitoring_location_id, year) %>%
+    group_by(monitoring_location_id, water_year) %>%
     mutate(
       delta_swe = swe - lag(swe),
       acc_swe = ifelse(delta_swe > 0, delta_swe, 0),
@@ -88,7 +88,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
       swe_ratio = total_snow / total_prcp
     ) %>%
     
-    group_by(monitoring_location_id, year, melt_event_num) %>%
+    group_by(monitoring_location_id, water_year, melt_event_num) %>%
     summarise(
       melt_amt = sum(melt, na.rm = TRUE),
       total_rain = first(total_rain),
@@ -102,7 +102,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
     
     filter(melt_amt > 0) %>%
     
-    group_by(monitoring_location_id, year) %>%
+    group_by(monitoring_location_id, water_year) %>%
     summarise(
       total_rain = first(total_rain),
       total_snow = first(total_snow),
@@ -136,7 +136,7 @@ rain_snow<- calculate_rain_snow(daymet_ws, save_path= NULL) #calling the fn
 calculate_prcp_timing <- function(climate_data, save_path = NULL) {
   #calculate annual totals first: sum up the daily depths for winter-spring of every site year
   annual_totals<- climate_data %>% 
-    group_by(monitoring_location_id, year) %>% 
+    group_by(monitoring_location_id, water_year) %>% 
     mutate(delta_swe = swe - lag(swe),
            snow = ifelse(prcp > 0 & delta_swe > 0, prcp, 0)
     ) %>% 
@@ -146,7 +146,7 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
   # then join to daily 
   
   daily_frac <- climate_data %>%
-    left_join(annual_totals, by = c("monitoring_location_id", "year")) %>%
+    left_join(annual_totals, by = c("monitoring_location_id", "water_year")) %>%
     arrange(monitoring_location_id, year, doy) %>%
     group_by(monitoring_location_id, year) %>%
     mutate(
@@ -161,19 +161,19 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
   #cv and iqd
   prcp_timing <- daily_frac %>%
     summarise(
-      doy_25_swe = doy[which(cum_frac_swe >= 0.25)[1]],
-      CV_swe = doy[which(cum_frac_swe >= 0.50)[1]],
-      doy_75_swe = doy[which(cum_frac_swe >= 0.75)[1]],
+      doy_25_swe = wy_doy[which(cum_frac_swe >= 0.25)[1]],
+      CV_swe = wy_doy[which(cum_frac_swe >= 0.50)[1]],
+      doy_75_swe = wy_doy[which(cum_frac_swe >= 0.75)[1]],
       IQD_swe = doy_75_swe - doy_25_swe,
-      doy_25_prcp = doy[which(cum_frac_prcp >= 0.25)[1]],
-      CV_prcp = doy[which(cum_frac_prcp >= 0.50)[1]],
-      doy_75_prcp = doy[which(cum_frac_prcp >= 0.75)[1]],
+      doy_25_prcp = wy_doy[which(cum_frac_prcp >= 0.25)[1]],
+      CV_prcp = wy_doy[which(cum_frac_prcp >= 0.50)[1]],
+      doy_75_prcp = wy_doy[which(cum_frac_prcp >= 0.75)[1]],
       IQD_prcp = doy_75_prcp - doy_25_prcp,
       .groups = "drop"
     )
   
   output_df <- annual_totals %>%
-    left_join(prcp_timing, by = c("monitoring_location_id", "year")) %>%
+    left_join(prcp_timing, by = c("monitoring_location_id", "water_year")) %>%
     arrange(monitoring_location_id, year)
   
   if (!is.null(save_path)) {
