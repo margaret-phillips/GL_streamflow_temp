@@ -6,7 +6,7 @@ which is discharge normalized by drainage area. Otherwise, streamflow in cfs is 
 The output data frame is then processed by a wrapper function that computes trends, 
 significance and variability in signatures over the time period."
 
-#rm(list=ls())
+
 
 # required libraries:
 library(tidyverse)

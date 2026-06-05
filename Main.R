@@ -7,7 +7,7 @@ source("streamflow_signatures.R")
 
 
 
-#Call up scripts with downloading and signature functions
+#Call up scripts with downloading and signature functions!
 
 streamflow_functions <- list(calculate_percentiles, calculate_FDC, calculate_CV_IQD, 
                              calculate_q_seasonality, calculate_flow_pulses, calculate_flashiness)
