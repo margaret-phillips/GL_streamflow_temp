@@ -6,6 +6,7 @@ which is discharge normalized by drainage area. Otherwise, streamflow in cfs is 
 The output data frame is then processed by a wrapper function that computes trends, 
 significance and variability in signatures over the time period."
 
+#rm(list=ls())
 
 # required libraries:
 library(tidyverse)
@@ -15,9 +16,6 @@ library(slider)
 #loading in saved discharge df:
 #required columns: q, daily_depth_mm, monitoring_location_id, water_year, doy (day of year), wy_doy
 cleaned_dv_qDepth_annual<- readRDS("data/processed/cleaned_dv_qDepth_annual.rds")
-cleaned_dv_qDepth_annual<- cleaned_dv_qDepth_annual %>% 
-  group_by(monitoring_location_id, water_year) %>% 
-  mutate(wy_doy= row_number())
 
 
 ##--------streamflow magnitude-----------------------------------------------####
@@ -114,6 +112,7 @@ calculate_FDC <- function(Q_data, save_path,
       },
       .groups = "drop"
     ) %>%
+    select(-n_obs) %>% 
     tidyr::unnest_wider(slopes, names_sep = "_slope")
   if (!is.null(save_path)) {
     saveRDS(output_df, save_path)

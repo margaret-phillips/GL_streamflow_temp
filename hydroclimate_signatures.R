@@ -7,12 +7,31 @@ to compute trends, significance, and variability in signatures over the time per
 
 #required libraries:
 library(tidyverse)
+library(lubridate)
 
+#read in daymet dataset
+daymet_annual<- readRDS("data/daymet/daymet.rds")
 
-#required columns: swe, tmin, tmax, prcp, monitoring_location_id, water_year
-daymet_ws<- daymet_ws %>% 
+#required columns: swe, tmin, tmax, prcp, monitoring_location_id, water_year, doy, wy_doy
+daymet_annual <- daymet_annual %>%
+  mutate(
+    monitoring_location_id = paste0("USGS-", site_id),
+    water_year = if_else(.data$month >= 10, .data$year + 1L, .data$year)
+  ) %>% 
   group_by(monitoring_location_id, year) %>% 
-  mutate(doy= row_number())
+  mutate(
+    doy = row_number()
+  ) %>% 
+  ungroup() %>% 
+  group_by(monitoring_location_id, water_year) %>% 
+  filter(any(month == 10)) %>% #this drops incomplete years aka the first year!
+  mutate(
+    start_doy = min(doy[month == 10]),           #first Oct day in WY
+    wy_doy = ((doy - start_doy) %% 365) + 1      # wrap around year
+  ) %>% 
+  ungroup()
+
+
 #NEED TO ADD A FEW SIGNATURES FOR ANNUAL SCALE! and make sure annual daymet has required cols
 
 ##-----------air temperature---------------------------------------------------####

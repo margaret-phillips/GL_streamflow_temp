@@ -341,4 +341,10 @@ save_rds(
   cleaned_dv_qDepth_ws = cleaned_dv_qDepth_ws
 )
 
+#relocating this down here. need to remove geometry 
+cleaned_dv_qDepth_annual<- cleaned_dv_qDepth_annual %>% 
+  select(-geometry) %>% 
+  group_by(monitoring_location_id, water_year) %>% 
+  mutate(wy_doy= row_number()) 
 
+saveRDS(cleaned_dv_qDepth_annual, "data/processed/cleaned_dv_qDepth_annual.rds")
