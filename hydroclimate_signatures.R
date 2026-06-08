@@ -53,7 +53,7 @@ calculate_air_temp<- function(climate_data, save_path= NULL){
   return(output_df)
 }
 
-calculate_air_temp(daymet_ws, save_path= NULL) #calling the fn
+
 
 
 
@@ -66,7 +66,11 @@ calculate_spring_days<- function(climate_data, save_path= NULL){
     group_by(monitoring_location_id, water_year) %>% 
     summarise(
       growing_deg = sum(pmax(tmin - Tgrow, 0), na.rm = TRUE), #cumulative degrees above 5C
-      last_damage_day = max(doy[tmin < Tdamage], na.rm = TRUE), #doy that corresponds to last value below -2.2C
+      
+      last_damage_day = {
+        idx <- which(tmin < Tdamage & doy >= 0 & doy <= 180)
+        if (length(idx) == 0) NA else max(doy[idx])
+      }, #spring doy that corresponds to last value below -2.2C...
       .groups = "drop"
       
     )
@@ -78,7 +82,7 @@ calculate_spring_days<- function(climate_data, save_path= NULL){
   return(output_df)
 }
 
-
+calculate_spring_days(daymet_annual)
 ##---------------------precipitation -------------------------------------------####
 
 #this function calculates rain, snow, and melt signatures
@@ -146,7 +150,6 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
   return(output_df)
 }
 
-rain_snow<- calculate_rain_snow(daymet_ws, save_path= NULL) #calling the fn
 
 
 
@@ -166,8 +169,8 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
   
   daily_frac <- climate_data %>%
     left_join(annual_totals, by = c("monitoring_location_id", "water_year")) %>%
-    arrange(monitoring_location_id, year, doy) %>%
-    group_by(monitoring_location_id, year) %>%
+    arrange(monitoring_location_id, water_year, wy_doy) %>%
+    group_by(monitoring_location_id, water_year) %>%
     mutate(
       delta_swe = swe - lag(swe),
       snow = ifelse(prcp > 0 & delta_swe > 0, prcp, 0),
@@ -193,19 +196,17 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
   
   output_df <- annual_totals %>%
     left_join(prcp_timing, by = c("monitoring_location_id", "water_year")) %>%
-    arrange(monitoring_location_id, year)
+    select(-doy_25_swe, -doy_75_swe, -doy_25_prcp, -doy_75_prcp) %>% 
+    arrange(monitoring_location_id, water_year)
   
   if (!is.null(save_path)) {
     saveRDS(output_df, save_path)
   }
   
-  return(list(
-    annual_metrics = output_df,
-    daily_metrics = daily_frac #maybe don't return this after all?
-  ))
-}
+  return(output_df)
 
-calculate_prcp_timing(daymet_ws, save_path = NULL)
+
+}
 
 
 
@@ -218,18 +219,20 @@ calculate_prcp_seasonality<- function(climate_data, save_path = NULL) {
     group_by(monitoring_location_id, water_year, month) %>%
     summarise(
       month_mean = mean(prcp, na.rm = TRUE),
+      month_total= sum(prcp, na.rm= TRUE),
       .groups = "drop"
     ) %>%
     
     group_by(monitoring_location_id, water_year) %>%
     summarise(
-      Ri = sum(prcp, na.rm = TRUE),
+      Ri = sum(month_total, na.rm = TRUE),
       
       seasonality_annual = #could make this more generic, but not hard-coding number of months
-        sum(abs(month_mean - Ri/12), na.rm = TRUE) / (1/ Ri), #now this ranges from 0 to 2
+        sum(abs(month_mean - Ri/12), na.rm = TRUE) * (1/ Ri), #now this ranges from 0 to 2
       
       .groups = "drop"
     ) %>%
+    select(-Ri) %>% 
     
     arrange(monitoring_location_id, water_year)
   
@@ -239,3 +242,6 @@ calculate_prcp_seasonality<- function(climate_data, save_path = NULL) {
   
   return(output_df)
 }
+
+
+
