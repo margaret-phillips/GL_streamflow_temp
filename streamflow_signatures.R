@@ -100,14 +100,14 @@ calculate_FDC <- function(Q_data, save_path,
             exceedance <= low_range[2]
           
           list(c(
-            overall = slope_calc(exceedance, sorted_flows),
-            high    = slope_calc(exceedance[high_idx],
-                                 sorted_flows[high_idx]),
-            mid     = slope_calc(exceedance[mid_idx],
-                                 sorted_flows[mid_idx]),
-            low     = slope_calc(exceedance[low_idx],
+            overall = abs(slope_calc(exceedance, sorted_flows)),
+            high    = abs(slope_calc(exceedance[high_idx],
+                                 sorted_flows[high_idx])),
+            mid     = abs(slope_calc(exceedance[mid_idx],
+                                 sorted_flows[mid_idx])),
+            low     = abs(slope_calc(exceedance[low_idx],
                                  sorted_flows[low_idx])
-          ))
+          )))
         }
       },
       .groups = "drop"

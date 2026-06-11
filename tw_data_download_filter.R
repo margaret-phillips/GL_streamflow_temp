@@ -4,6 +4,9 @@ The end result is a dataframe that can be used to run stream temperature signatu
 
 
 #necessary libraries:
+library(dataRetrieval)
+library(stringr)
+library(imputeTS)
 library(tidyverse)
 library(zoo)
 library(purrr)
@@ -99,7 +102,7 @@ dup_check  # should be empty
 
 
 
-##--------------------------------re-doing completeness criteria w monthly scale-----------------####
+##-----------------------------re-doing completeness criteria w monthly scale-----------------####
 #group by month and require 20 or more days per month and consecutive gaps of 5 days or less
 
 #at this point, dataframe should be de-duplicated, but doesn't need to be filtered to adequate data yet
@@ -164,15 +167,17 @@ site_year_summary_month <- dv_tw_full %>%
     .groups = "drop"
   )
 #need to filter this df and semi-join so that acceptable months at a site are kept..
-
-#Keep only good months
-# at least 20 observed days per month
-# no NA gaps > 5 days
-##this is all the same as above, but re-doing this part at monthly scale instead:
-
-
+adequate_tw_data<- site_year_summary_month %>% 
+  filter(n_obs>= 20 & max_gap <= 5)
 
 #need to join to create a dataframe that meets completeness criteria for interpolation, etc below!!
+dv_tw_adequate_data <- dv_tw_full %>%
+  semi_join(
+    adequate_tw_data,
+    by = c("monitoring_location_id", "water_year", "month") #including month in join since filter criteria used it
+  )
+
+
 #OR: several dataframes? one annual, one summer.. to optimize available data
 
 
@@ -182,129 +187,82 @@ dv_tw_adequate_data <- dv_tw_adequate_data %>%
   group_by(monitoring_location_id) %>%
   filter(n_distinct(water_year[water_year <= 2022]) >= 11)
 
-dv_tw_adequate_data %>% 
+tw_sites<- dv_tw_adequate_data %>% 
   summarise(n_sites= n_distinct(monitoring_location_id))
 
+excluded_sites<- setdiff(ids, sites)
 
-##-------------------------------------fill gaps <= 5 days using either linear interpolation or PCA imputation-----####
+!tw_sites$monitoring_location_id %in% excluded_sites #one site needs to be eliminated sadly
 
-#this function interpolates gaps with linear interpolation or with PCA depending on
-#the amount of correlated data available
-hybrid_impute_tw <- function(df,
-                             maxgap = 5, #originally set this to 5--can iterate on this number
-                             min_sites = 3,
-                             min_overlap = 0.3,
-                             ncp = 2) {
+dv_tw_adequate_data<- dv_tw_adequate_data %>% 
+  filter(!monitoring_location_id%in% excluded_sites)
+
+#re-echecking:
+tw_sites<- dv_tw_adequate_data %>% 
+  summarise(n_sites= n_distinct(monitoring_location_id)) #confirmed that it dropped.
+
+##-------------------------------------fill gaps <= 5 days using linear interpolation-----####
+
+#handling gaps with linear interpolation since gaps are limited to 5 consecutive days or less. 
+#also have a version saved that uses PCA imputation, but prob overkill for such short gaps..
+
+dv_tw_interp <- dv_tw_adequate_data %>%
+  arrange(monitoring_location_id, time) %>%
   
-  df <- df %>%
-    arrange(monitoring_location_id, time) %>%
-    mutate(time = as.Date(time))
+  group_by(monitoring_location_id, water_year, month) %>%
   
-
-# Linear interpolation first
-
-  df_lin <- df %>%
-    group_by(monitoring_location_id) %>%
-    arrange(time) %>%
-    mutate(
-      tw_linear = na.approx(tw, maxgap = maxgap, na.rm = FALSE),
-      method = ifelse(is.na(tw) & !is.na(tw_linear), "linear", NA)
-    ) %>%
-    ungroup()
+  mutate(
+    
+    # flag rows that were originally missing
+    interpolated = is.na(tw),
+    
+    # interpolate only gaps <= 5 days
+    tw = na_interpolation(
+      tw,
+      option = "linear",
+      maxgap = 5
+    )
+  ) %>%
   
+  ungroup()
 
-#process each year to see whether there are enough sites for PCA
-  df_out <- df_lin %>%
-    group_split(year) %>%
-    lapply(function(d) {
-      
-      # pivot to wide
-      wide <- d %>%
-        select(time, monitoring_location_id, tw_linear) %>%
-        pivot_wider(names_from = monitoring_location_id,
-                    values_from = tw_linear) %>%
-        arrange(time)
-      
-      time_index <- wide$time
-      mat <- wide %>% select(-time)
-      
-      # diagnostics
-      n_sites <- ncol(mat)
-      overlap <- mean(!is.na(mat))
-      
-      # skip PCA if not enough structure
-      if (n_sites < min_sites || overlap < min_overlap) {
-        return(d %>% mutate(tw_filled = tw_linear))
-      }
-      
-      # run PCA imputation safely
-      imputed_mat <- tryCatch({
-        imputePCA(mat, ncp = ncp, maxiter = 100)$completeObs
-      }, error = function(e) {
-        return(NULL)
-      })
-      
-      if (is.null(imputed_mat)) {
-        return(d %>% mutate(tw_filled = tw_linear))
-      }
-      
-      # back to long
-      df_pca <- imputed_mat %>%
-        as.data.frame() %>%
-        mutate(time = time_index) %>%
-        pivot_longer(-time,
-                     names_to = "monitoring_location_id",
-                     values_to = "tw_pca")
-      
-      # merge back
-      d2 <- d %>%
-        left_join(df_pca,
-                  by = c("time", "monitoring_location_id")) %>%
-        mutate(
-          tw_filled = case_when(
-            !is.na(tw) ~ tw,
-            is.na(tw) & !is.na(tw_linear) ~ tw_linear,
-            is.na(tw) & is.na(tw_linear) & !is.na(tw_pca) ~ tw_pca,
-            TRUE ~ NA_real_
-          ),
-          method = case_when(
-            !is.na(tw) ~ "observed",
-            is.na(tw) & !is.na(tw_linear) ~ "linear",
-            is.na(tw) & is.na(tw_linear) & !is.na(tw_pca) ~ "pca",
-            TRUE ~ "missing"
-          )
-        )
-      
-      return(d2)
-    }) %>%
-    bind_rows()
+
+cleaned_dv_tw<- dv_tw_interp #renaming before saving!
+
+
+##----------------------------------------saving df to processed folder---------####
+
+save_rds <- function(out_dir, ...) {
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
   
-  return(df_out)
+  purrr::iwalk(
+    list(...),
+    ~ saveRDS(.x, file.path(out_dir, paste0(.y, ".rds")))
+  )
 }
 
-df_tw_interp <- hybrid_impute_tw(dv_tw_adequate_data) #calling the fn on the filtered tw dataset
+#calling fn for cleaned and filtered dfs
+save_rds(
+  out_dir = "data/processed",
+  cleaned_dv_tw = cleaned_dv_tw)
+  
 
-#also need to filter to sites with at least 11 yrs data
+##--------------------------------------sanity checks------------------------####
 
-df_tw_interp %>% 
-  summarise(n_sites= n_distinct(monitoring_location_id))
-
-##-------------------------PROB GET RID OF THIS: require 300 days of data per water year, remove site years with long gaps-----------####
-#at this point, dataframe should be de-duplicated, but doesn't need to be filtered to adequate data yet
-
-
-#Keep only good site-years
-# at least 300 observed days
-# no NA gaps > 5 days
-
-good_site_years <- site_year_summary %>%
-  filter(
-    n_obs >= 200,
-    max_gap <= 170 #some gages are operated seasonally... toss out months with inadequate data? or require completeness march- nov?
+monthly_completeness <- cleaned_dv_tw %>%
+  mutate(
+    year = year(time),
+    month = month(time)
+  ) %>%
+  group_by(monitoring_location_id, year, month) %>%
+  summarise(
+    n_obs = n(),
+    expected_days = days_in_month(min(time)),
+    complete = n_obs == expected_days,
+    .groups = "drop"
   )
 
-dv_tw_adequate_data <- dv_tw_full %>%
-  semi_join(
-    good_site_years,
-    by = c("monitoring_location_id", "water_year")
-  )
+#this confirms that I'm not missing any data per month
+
+
+

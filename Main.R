@@ -101,8 +101,6 @@ compute_trends<- function(df, time_col = "water_year") {
       names_from = signature,
       values_from = c(
         sen_slope,
-        sen_conf_low,
-        sen_conf_high,
         sen_pval,
         mk_tau,
         mk_pval
@@ -116,7 +114,7 @@ compute_trends<- function(df, time_col = "water_year") {
   return(results_final)
 }
 
-
+streamflow_trends<- compute_trends(streamflow_combined_df)
 #save output dataframe
 
 

@@ -141,7 +141,8 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
       max_melt_daily = first(max_melt_daily),
       n_melt_events = n(),
       .groups = "drop"
-    )
+    ) %>% 
+    select(-total_melt, -total_snow, -total_prcp, -n_melt_events)
   
   if (!is.null(save_path)) {
     saveRDS(output_df, save_path)
