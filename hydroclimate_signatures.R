@@ -175,6 +175,9 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
     mutate(
       delta_swe = swe - lag(swe),
       snow = ifelse(prcp > 0 & delta_swe > 0, prcp, 0),
+      ros= ifelse(prcp >0 & delta_swe <= 0 & swe >0, prcp, 0), #this is the depth of ROS
+      ros_event = coalesce(ros > 0, FALSE),
+      ros_event_num = cumsum(ros_event & !lag(ros_event, default = FALSE)),
       frac_annual_swe = snow / annual_swe, 
       frac_annual_prcp= prcp/ annual_prcp,
       cum_frac_swe = cumsum(coalesce(frac_annual_swe, 0)), #had to do this to avoid NA values
@@ -192,6 +195,14 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
       CV_prcp = wy_doy[which(cum_frac_prcp >= 0.50)[1]],
       doy_75_prcp = wy_doy[which(cum_frac_prcp >= 0.75)[1]],
       IQD_prcp = doy_75_prcp - doy_25_prcp,
+      peak_swe_doy= wy_doy[which.max(swe)],
+      swe_peak= max(swe),
+      snow_cover_duration= sum(swe> 0),
+      total_ros= sum(ros),
+      num_ros_events= max(ros_event_num),
+      avg_ros_depth= mean(ros, na.rm= TRUE),
+      max_ros_depth= max(ros, na.rm=TRUE),
+      min_ros_depth= min(ros, na.rm= TRUE),
       .groups = "drop"
     )
   
@@ -209,7 +220,7 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
 
 }
 
-
+calculate_prcp_timing(daymet_annual, save_path= NULL)
 
 #this function calculates precipitation seasonality which is the sum of deviations
 #of monthly precip from mean montly precip, divided by the total annual precip
@@ -245,4 +256,24 @@ calculate_prcp_seasonality<- function(climate_data, save_path = NULL) {
 }
 
 
+calculate_seasonal_prcp <- function(climate_data, save_path = NULL) {
+  
+  output_df <- climate_data %>%
+    group_by(monitoring_location_id, water_year) %>%
+    summarise(
+      fall_prcp   = sum(prcp[month %in% 10:12], na.rm = TRUE),
+      winter_prcp = sum(prcp[month %in% 1:3],  na.rm = TRUE),
+      spring_prcp = sum(prcp[month %in% 4:6],  na.rm = TRUE),
+      summer_prcp = sum(prcp[month %in% 7:9],  na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(monitoring_location_id, water_year)
+  
+  if (!is.null(save_path)) {
+    saveRDS(output_df, save_path)
+  }
+  
+  return(output_df)
+}
 
+calculate_seasonal_prcp(daymet_annual)

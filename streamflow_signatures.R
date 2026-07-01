@@ -12,6 +12,7 @@ significance and variability in signatures over the time period."
 library(tidyverse)
 library(lubridate)
 library(slider)
+library(FlowScreen) #package to calculate BFI
 
 #loading in saved discharge df:
 #required columns: q, daily_depth_mm, monitoring_location_id, water_year, doy (day of year), wy_doy
@@ -123,6 +124,8 @@ calculate_FDC <- function(Q_data, save_path,
 
 calculate_FDC(cleaned_dv_qDepth_annual, save_path= NULL) #calling the fn
 
+
+
 ##------------streamflow timing & duration-----------------------------------####
 
 
@@ -133,31 +136,33 @@ calculate_FDC(cleaned_dv_qDepth_annual, save_path= NULL) #calling the fn
 # add a version that does winter-spring timing??
 calculate_CV_IQD <- function(Q_data, save_path = NULL) {
   #calculate annual totals first: sum up the daily depths for winter-spring of every site year
-  annual_totals<- Q_data %>% 
+  ws<- 1:5
+  ws_totals<- Q_data %>% 
     group_by(monitoring_location_id, water_year) %>% 
-    summarise(annual_depth_mm= sum(daily_depth_mm))
+    filter(month %in% ws) %>% 
+    summarise(ws_depth_mm= sum(daily_depth_mm))
   # then join to daily 
 
   daily_frac <- Q_data %>%
-    left_join(annual_totals, by = c("monitoring_location_id", "water_year")) %>%
-    arrange(monitoring_location_id, water_year, wy_doy) %>%
+    left_join(ws_totals, by = c("monitoring_location_id", "water_year")) %>%
+    arrange(monitoring_location_id, water_year, doy) %>%
     group_by(monitoring_location_id, water_year) %>%
     mutate(
-      frac_annual_qDepth = daily_depth_mm / annual_depth_mm,
+      frac_annual_qDepth = daily_depth_mm / ws_depth_mm,
       cum_frac_flow = cumsum(frac_annual_qDepth)
     )
   
   #cv and iqd
   flow_timing <- daily_frac %>%
     summarise(
-      doy_25 = wy_doy[which(cum_frac_flow >= 0.25)[1]],
-      CV = wy_doy[which(cum_frac_flow >= 0.50)[1]],
-      doy_75 = wy_doy[which(cum_frac_flow >= 0.75)[1]],
-      IQD = doy_75 - doy_25,
+      doy_25 = doy[which(cum_frac_flow >= 0.25)[1]],
+      WSCOV = doy[which(cum_frac_flow >= 0.50)[1]],
+      doy_75 = doy[which(cum_frac_flow >= 0.75)[1]],
+      WSIQD = doy_75 - doy_25,
       .groups = "drop"
     )
   
-  output_df <- annual_totals %>%
+  output_df <- ws_totals %>%
     left_join(flow_timing, by = c("monitoring_location_id", "water_year")) %>%
     arrange(monitoring_location_id, water_year) %>% 
     select(c= -doy_25, -doy_75)
@@ -253,19 +258,49 @@ calculate_flow_pulses(Q_data= cleaned_dv_qDepth_annual, save_path=NULL)
 #for every site year using daily discharge
 calculate_flashiness <- function(Q_data, save_path = NULL) {
   
-  output_df <- Q_data %>%
-    mutate(time = as.Date(time)) %>%
+  Q_data_szn <- Q_data %>%
+    mutate(
+      time = as.Date(time),
+      month = month(time),
+      season = case_when(
+        month %in% c(10,11,12) ~ "fall",
+        month %in% c(1,2,3)    ~ "winter",
+        month %in% c(4,5,6)    ~ "spring",
+        month %in% c(7,8,9)    ~ "summer"
+      )
+    )
+  
+  seasonal_df <- Q_data_szn %>%
+    filter(!is.na(season)) %>%
+    group_by(monitoring_location_id, water_year, season) %>%
+    arrange(time, .by_group = TRUE) %>%
+    mutate(q_diff = abs(q - lag(q))) %>%
+    summarise(
+      rb = sum(q_diff, na.rm = TRUE) / sum(q, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  annual_df <-  Q_data_szn %>%
     group_by(monitoring_location_id, water_year) %>%
     arrange(time, .by_group = TRUE) %>%
-    mutate(q_diff = abs(q - dplyr::lag(q))) %>%
+    mutate(q_diff = abs(q - lag(q))) %>%
     summarise(
-      num = sum(q_diff, na.rm = TRUE),
-      den = sum(q,  na.rm = TRUE),
-      rb_index = if_else(den > 0, num / den, NA_real_),
+      annual_rb = sum(q_diff, na.rm = TRUE) / sum(q, na.rm = TRUE),
       .groups = "drop"
-    ) %>% 
-    select(c= -num, -den) #only want to return rb index, wy, and site id
+    )
   
+  # ---- Pivot seasons wide ----
+  seasonal_wide <- seasonal_df %>%
+    pivot_wider(
+      names_from = season,
+      values_from = rb,
+      names_glue = "{season}_rb"
+    )
+  
+  # ---- Combine ----
+  output_df <- annual_df %>%
+    left_join(seasonal_wide, 
+              by = c("monitoring_location_id", "water_year"))
   
   if (!is.null(save_path)) saveRDS(output_df, save_path)
   
@@ -273,6 +308,3 @@ calculate_flashiness <- function(Q_data, save_path = NULL) {
 }
 
 calculate_flashiness(cleaned_dv_qDepth_annual, save_path= NULL) #calling the fn
-
-  
-  

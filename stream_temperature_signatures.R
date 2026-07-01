@@ -3,6 +3,12 @@ Signatures are computed based on corresponding data availability (e.g. maximum s
 temperature is computed when summer months are available, but average temperature is 
 only computed if all months are available)."
 
+#necessary libraries
+library(tidyverse)
+
+#loading dataframe for signatures
+cleaned_dv_tw<- readRDS("data/processed/cleaned_dv_tw.rds")
+
 ##------------magnitude------------------------------------------------------####
 
 #avg max and min stream temp
