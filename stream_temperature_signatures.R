@@ -109,11 +109,12 @@ calculate_tw_20C_dur<- function(tw_data, save_path= NULL){
 
 calculate_tw_20C_dur(cleaned_dv_tw)
 
-##-----------------------------variability-----------------------------------####
+##-----------------------------seasonal & variability------------------------####
 
 #rate of change for spring and Fall (deg C per day)-- (Chu et al., 2010)
+#average temperatures for each season
 
-calculate_tw_roc_spring <- function(tw_data, save_path = NULL) {
+calculate_tw_spring <- function(tw_data, save_path = NULL) {
   
   time_range <- 4:6
   
@@ -133,6 +134,7 @@ calculate_tw_roc_spring <- function(tw_data, save_path = NULL) {
       min_spring_tw_roc = min(delta_tw[delta_time == 1], na.rm = TRUE),
       spring_tw_roc     = mean(delta_tw[delta_time == 1], na.rm = TRUE),
       max_spring_tw_roc = max(delta_tw[delta_time == 1], na.rm = TRUE),
+      spring_avg= mean(tw, na.rm=TRUE),
       
       .groups = "drop"
     ) %>%
@@ -146,11 +148,49 @@ calculate_tw_roc_spring <- function(tw_data, save_path = NULL) {
   return(output_df)
 }
 
-calculate_tw_roc_spring(cleaned_dv_tw)
+#calculate_tw_roc_spring(cleaned_dv_tw)
 
 
 
-calculate_tw_roc_fall <- function(tw_data, save_path = NULL) {
+
+
+calculate_tw_summer <- function(tw_data, save_path = NULL) {
+  
+  time_range <- 6:8
+  
+  output_df <- tw_data %>%
+    filter(month %in% time_range) %>%
+    arrange(monitoring_location_id, water_year, time) %>%
+    group_by(monitoring_location_id, water_year) %>%
+    mutate(
+      delta_tw   = tw - lag(tw),
+      delta_time = as.numeric(difftime(time, lag(time), units = "days"))
+    ) %>%
+    summarise(
+      has_full_range = all(time_range %in% month),
+      complete_months = all(table(month) >= 28),
+      
+      # only use true daily steps
+      min_summer_tw_roc = min(delta_tw[delta_time == 1], na.rm = TRUE),
+      summer_tw_roc     = mean(delta_tw[delta_time == 1], na.rm = TRUE),
+      max_summer_tw_roc = max(delta_tw[delta_time == 1], na.rm = TRUE),
+      summer_avg= mean(tw, na.rm=TRUE),
+      
+      .groups = "drop"
+    ) %>%
+    filter(has_full_range & complete_months) %>%
+    select(-has_full_range, -complete_months)
+  
+  if (!is.null(save_path)) {
+    saveRDS(output_df, save_path)
+  }
+  
+  return(output_df)
+}
+
+
+
+calculate_tw_fall <- function(tw_data, save_path = NULL) {
   
   time_range <- 9:11
   
@@ -170,6 +210,7 @@ calculate_tw_roc_fall <- function(tw_data, save_path = NULL) {
       min_fall_tw_roc = min(delta_tw[delta_time == 1], na.rm = TRUE), #enforced one day only lags
       fall_tw_roc     = mean(delta_tw[delta_time == 1], na.rm = TRUE),
       max_fall_tw_roc = max(delta_tw[delta_time == 1], na.rm = TRUE),
+      fall_avg= mean(tw, na.rm=TRUE),
       
       .groups = "drop"
     ) %>%

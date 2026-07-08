@@ -87,6 +87,7 @@ calculate_spring_days(daymet_annual)
 
 #this function calculates rain, snow, and melt signatures
 calculate_rain_snow<- function(climate_data, save_path= NULL){
+  swe_period<- list(11, 12, 1, 2, 3, 4)
   
   output_df <- climate_data %>%
     
@@ -108,7 +109,10 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
       total_prcp = sum(prcp, na.rm = TRUE),
       total_melt_events = max(melt_event_num, na.rm = TRUE),
       max_melt_daily = max(melt, na.rm = TRUE),
-      swe_ratio = total_snow / total_prcp
+      swe_ratio = total_snow / total_prcp,
+      ws_swe_ratio= 
+        sum(snow[month %in% swe_period], na.rm = TRUE) /
+        sum(prcp[month %in% swe_period], na.rm = TRUE)
     ) %>%
     
     group_by(monitoring_location_id, water_year, melt_event_num) %>%
@@ -120,6 +124,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
       total_melt_events = first(total_melt_events),
       max_melt_daily = first(max_melt_daily),
       swe_ratio = first(swe_ratio),
+      ws_swe_ratio= first(ws_swe_ratio),
       .groups = "drop"
     ) %>%
     
@@ -132,6 +137,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
       total_prcp = first(total_prcp),
       total_melt_events = first(total_melt_events),
       swe_ratio = first(swe_ratio),
+      ws_swe_ratio= first(ws_swe_ratio),
       
       total_melt = sum(melt_amt, na.rm = TRUE),
       avg_melt   = mean(melt_amt, na.rm = TRUE),
@@ -151,8 +157,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
   return(output_df)
 }
 
-
-
+calculate_rain_snow(daymet_annual)
 
 
 #this function calculates precipitation timing signatures
@@ -202,7 +207,6 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
       num_ros_events= max(ros_event_num),
       avg_ros_depth= mean(ros, na.rm= TRUE),
       max_ros_depth= max(ros, na.rm=TRUE),
-      min_ros_depth= min(ros, na.rm= TRUE),
       .groups = "drop"
     )
   
