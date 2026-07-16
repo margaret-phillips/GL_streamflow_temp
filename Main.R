@@ -143,12 +143,12 @@ streamflow_trends<- compute_trends(streamflow_combined_df)
 ##--------------hydroclimate-------------------------------------------------####
 
 hydroclimate_functions <- list(calculate_air_temp, calculate_prcp_seasonality, calculate_prcp_timing, 
-                               calculate_rain_snow, calculate_spring_days, calculate_seasonal_prcp)
+                               calculate_rain_snow, calculate_spring_days, calculate_seasonal_prcp, calculate_seasonal_airtemp)
 
 
 hydroclimate_output_dfs <- lapply(
   hydroclimate_functions,
-  function(f) f(daymet_annual, save_path = NULL)
+  function(f) f(daymet_annual_clean, save_path = NULL)
 )
 
 hydroclimate_combined_df <- reduce(
@@ -163,7 +163,7 @@ hydroclimate_trends<- compute_trends(hydroclimate_combined_df)
 ##---------------------stream temperature-------------------------------------####
 
 streamtemp_functions <- list(calculate_tw_20C_dur, calculate_tw_avg, calculate_tw_grow_days, 
-                               calculate_tw_roc_fall, calculate_tw_roc_spring)
+                               calculate_tw_fall, calculate_tw_spring, calculate_tw_summer)
 
 
 streamtemp_output_dfs <- lapply(

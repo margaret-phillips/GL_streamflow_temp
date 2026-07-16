@@ -12,24 +12,17 @@ library(lubridate)
 #read in daymet dataset
 daymet_annual<- readRDS("data/daymet/daymet.rds")
 
-#required columns: swe, tmin, tmax, prcp, monitoring_location_id, water_year, doy, wy_doy
-daymet_annual <- daymet_annual %>%
-  mutate(
-    monitoring_location_id = paste0("USGS-", site_id),
-    water_year = if_else(.data$month >= 10, .data$year + 1L, .data$year)
-  ) %>% 
-  group_by(monitoring_location_id, year) %>% 
-  mutate(
-    doy = row_number()
-  ) %>% 
-  ungroup() %>% 
-  group_by(monitoring_location_id, water_year) %>% 
-  filter(any(month == 10)) %>% #this drops incomplete years aka the first year!
-  mutate(
-    start_doy = min(doy[month == 10]),           #first Oct day in WY
-    wy_doy = ((doy - start_doy) %% 365) + 1      # wrap around year
-  ) %>% 
-  ungroup()
+
+daymet_annual_clean<- daymet_annual %>% 
+  mutate(monitoring_location_id= paste0("USGS-", site_id),
+         water_year = if_else(month >= 10, year + 1, year)) %>% 
+  group_by(monitoring_location_id, water_year) %>%
+  mutate(wy_doy= row_number()) %>% 
+  filter(n() >= 364) #bc of how daymet wraps years and deals with leap years, a water year has btwn 364 and 366 days!
+
+wy_check<- daymet_annual_clean %>% 
+  group_by(monitoring_location_id) %>% 
+  summarise(complete_yrs= n_distinct(water_year))#verifying that coverage spans complete wy time period!
 
 
 #NEED TO ADD A FEW SIGNATURES FOR ANNUAL SCALE! and make sure annual daymet has required cols
@@ -68,8 +61,8 @@ calculate_spring_days<- function(climate_data, save_path= NULL){
       growing_deg = sum(pmax(tmin - Tgrow, 0), na.rm = TRUE), #cumulative degrees above 5C
       
       last_damage_day = {
-        idx <- which(tmin < Tdamage & doy >= 0 & doy <= 180)
-        if (length(idx) == 0) NA else max(doy[idx])
+        idx <- which(tmin < Tdamage & wy_doy >= 0 & wy_doy <= 180)
+        if (length(idx) == 0) NA else max(wy_doy[idx])
       }, #spring doy that corresponds to last value below -2.2C...
       .groups = "drop"
       
@@ -82,7 +75,7 @@ calculate_spring_days<- function(climate_data, save_path= NULL){
   return(output_df)
 }
 
-calculate_spring_days(daymet_annual)
+
 ##---------------------precipitation -------------------------------------------####
 
 #this function calculates rain, snow, and melt signatures
@@ -157,7 +150,7 @@ calculate_rain_snow<- function(climate_data, save_path= NULL){
   return(output_df)
 }
 
-calculate_rain_snow(daymet_annual)
+
 
 
 #this function calculates precipitation timing signatures
@@ -224,7 +217,7 @@ calculate_prcp_timing <- function(climate_data, save_path = NULL) {
 
 }
 
-calculate_prcp_timing(daymet_annual, save_path= NULL)
+
 
 #this function calculates precipitation seasonality which is the sum of deviations
 #of monthly precip from mean montly precip, divided by the total annual precip
@@ -260,6 +253,9 @@ calculate_prcp_seasonality<- function(climate_data, save_path = NULL) {
 }
 
 
+
+
+
 calculate_seasonal_prcp <- function(climate_data, save_path = NULL) {
   
   output_df <- climate_data %>%
@@ -280,4 +276,33 @@ calculate_seasonal_prcp <- function(climate_data, save_path = NULL) {
   return(output_df)
 }
 
-calculate_seasonal_prcp(daymet_annual)
+
+
+
+
+calculate_seasonal_airtemp <- function(climate_data, save_path = NULL) {
+  
+  output_df <- climate_data %>%
+    group_by(monitoring_location_id, water_year) %>%
+    summarise(
+      fall_airtemp   = (mean(tmax[month %in% 10:12], na.rm = TRUE) + mean(tmin[month %in% 10:12], na.rm = TRUE)) / 2,
+      winter_airtemp = (mean(tmax[month %in% 1:3], na.rm = TRUE) + mean(tmin[month %in% 1:3], na.rm = TRUE)) / 2,
+      spring_airtemp = (mean(tmax[month %in% 4:6], na.rm = TRUE) + mean(tmin[month %in% 4:6], na.rm = TRUE)) / 2,
+      summer_airtemp = (mean(tmax[month %in% 7:9], na.rm = TRUE) + mean(tmin[month %in% 7:9], na.rm = TRUE)) / 2,
+      .groups = "drop"
+    ) %>%
+    arrange(monitoring_location_id, water_year)
+  
+  if (!is.null(save_path)) {
+    saveRDS(output_df, save_path)
+  }
+  
+  return(output_df)
+}
+
+
+
+
+##-----------add in a function that computes spi at monthly scale----------#####
+
+

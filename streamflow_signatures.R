@@ -35,6 +35,7 @@ calculate_percentiles<- function(Q_data, save_path){
       q90 = quantile(daily_depth_mm, probs = 0.90, na.rm = TRUE),
       q95 = quantile(daily_depth_mm, probs = 0.95, na.rm = TRUE),
       q99 = quantile(daily_depth_mm, probs = 0.99, na.rm = TRUE),
+      q_annual = sum(daily_depth_mm, na.rm= TRUE),
       .groups = "drop"
     ) 
   
