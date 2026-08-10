@@ -253,6 +253,138 @@ calculate_flow_pulses <- function(Q_data, save_path = NULL) {
 calculate_flow_pulses(Q_data= cleaned_dv_qDepth_annual, save_path=NULL)
 
 
+
+
+#this function computes the frequency of discrete high flow events seasonally and at the annual scale
+calculate_frequency_highs <- function(Q_data, save_path = NULL) {
+  
+  Q_data<- Q_data |> 
+    group_by(monitoring_location_id, water_year) |> 
+    mutate(
+      avg_daily_flow= mean(q, na.rm=TRUE)
+    ) #doing this to have average daily flow for every row/daily observation for easier comparison 
+  
+  Q_data_szn <- Q_data %>%
+    mutate(
+      time = as.Date(time),
+      month = month(time),
+      season = case_when(
+        month %in% c(10,11,12) ~ "fall",
+        month %in% c(1,2,3)    ~ "winter",
+        month %in% c(4,5,6)    ~ "spring",
+        month %in% c(7,8,9)    ~ "summer"
+      )
+    )
+  
+  seasonal_df <- Q_data_szn %>%
+    filter(!is.na(season)) %>%
+    group_by(monitoring_location_id, water_year, season) %>%
+    arrange(time, .by_group = TRUE) %>%
+    mutate(q_rel = q / avg_daily_flow) %>%
+    mutate(
+      high_flow = q_rel > 2,
+      event_start = high_flow & !lag(high_flow, default = FALSE)
+    ) %>%
+    summarise(
+      high_frequency = sum(event_start),
+      .groups = "drop"
+    )
+  
+  annual_df <- seasonal_df %>%
+    group_by(monitoring_location_id, water_year) %>%
+    summarise(
+      annual_high_frequency = sum(high_frequency),
+      .groups = "drop"
+    )
+  
+  # ---- Pivot seasons wide ----
+  seasonal_wide <- seasonal_df %>%
+    pivot_wider(
+      names_from = season,
+      values_from = high_frequency,
+      names_glue = "{season}_high_frequency"
+    )
+  
+  # ---- Combine ----
+  output_df <- annual_df %>%
+    left_join(seasonal_wide, 
+              by = c("monitoring_location_id", "water_year"))
+  
+  if (!is.null(save_path)) saveRDS(output_df, save_path)
+  
+  return(output_df)
+}
+
+calculate_frequency_highs(cleaned_dv_qDepth_annual, save_path= NULL)
+
+
+
+
+
+#this function calculates the frequency of low flow events seasonally and at the annual scale
+calculate_frequency_lows<- function(Q_data, save_path = NULL) {
+  
+  Q_data<- Q_data |> 
+    group_by(monitoring_location_id, water_year) |> 
+    mutate(
+      avg_daily_flow= mean(q, na.rm=TRUE)
+    ) #doing this to have average daily flow for every row/daily observation for easier comparison 
+  
+  Q_data_szn <- Q_data %>%
+    mutate(
+      time = as.Date(time),
+      month = month(time),
+      season = case_when(
+        month %in% c(10,11,12) ~ "fall",
+        month %in% c(1,2,3)    ~ "winter",
+        month %in% c(4,5,6)    ~ "spring",
+        month %in% c(7,8,9)    ~ "summer"
+      )
+    ) #could instead compute at the annual scale and then sum events by season
+  
+  seasonal_df <- Q_data_szn %>%
+    filter(!is.na(season)) %>%
+    group_by(monitoring_location_id, water_year, season) %>%
+    arrange(time, .by_group = TRUE) %>%
+    mutate(q_rel = q / avg_daily_flow) %>%
+    mutate(
+      low_flow = q_rel < 0.5,
+      event_start = low_flow & !lag(low_flow, default = FALSE)
+    ) %>%
+    summarise(
+      low_frequency = sum(event_start),
+      .groups = "drop"
+    )
+  
+  annual_df <-  seasonal_df %>%
+    group_by(monitoring_location_id, water_year) %>%
+    summarise(
+      annual_low_frequency = sum(low_frequency),
+      .groups = "drop"
+    )
+  
+  # ---- Pivot seasons wide ----
+  seasonal_wide <- seasonal_df %>%
+    pivot_wider(
+      names_from = season,
+      values_from = low_frequency,
+      names_glue = "{season}_low_frequency"
+    )
+  
+  # ---- Combine ----
+  output_df <- annual_df %>%
+    left_join(seasonal_wide, 
+              by = c("monitoring_location_id", "water_year"))
+  
+  if (!is.null(save_path)) saveRDS(output_df, save_path)
+  
+  return(output_df)
+}
+
+
+calculate_frequency_lows(cleaned_dv_qDepth_annual, save_path= NULL)
+
+
 ##-----------------------streamflow rate of change-----------------------------####
 
 #this function computes a rate of change metric, the Richard Baker flashiness index,
@@ -309,3 +441,6 @@ calculate_flashiness <- function(Q_data, save_path = NULL) {
 }
 
 calculate_flashiness(cleaned_dv_qDepth_annual, save_path= NULL) #calling the fn
+
+
+

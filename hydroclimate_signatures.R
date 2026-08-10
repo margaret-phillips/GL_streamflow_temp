@@ -13,16 +13,17 @@ library(lubridate)
 daymet_annual<- readRDS("data/daymet/daymet.rds")
 
 
-daymet_annual_clean<- daymet_annual %>% 
+clean_daymet_annual<- daymet_annual %>% 
   mutate(monitoring_location_id= paste0("USGS-", site_id),
          water_year = if_else(month >= 10, year + 1, year)) %>% 
   group_by(monitoring_location_id, water_year) %>%
   mutate(wy_doy= row_number()) %>% 
   filter(n() >= 364) #bc of how daymet wraps years and deals with leap years, a water year has btwn 364 and 366 days!
 
-wy_check<- daymet_annual_clean %>% 
+wy_check<- clean_daymet_annual %>% 
   group_by(monitoring_location_id) %>% 
   summarise(complete_yrs= n_distinct(water_year))#verifying that coverage spans complete wy time period!
+
 
 
 #NEED TO ADD A FEW SIGNATURES FOR ANNUAL SCALE! and make sure annual daymet has required cols

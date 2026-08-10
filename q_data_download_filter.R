@@ -23,7 +23,9 @@ ft2_per_km2<- 1.0764E+7 #square ft per sq kilometer
 mm_per_ft<- 304.8 #mm per foot
 
 ##---------------requesting data for USGS sites with daymet data-------------####
-daymet_sites<- readRDS("daymet_sites_summary.RDS") #these are GL sites with daymet data from 1980 to 2022
+daymet_sites<- readRDS("data/daymet/daymet_sites_summary.RDS") #these are GL sites with daymet data from 1980 to 2022
+daymet_sites<- daymet_sites %>% 
+  mutate(monitoring_location_id= paste0("USGS-", site_id))
 
 #converting site_id to monitoring_location_id for NWIS request
 ids<- unique(daymet_sites$site_id)
@@ -246,15 +248,20 @@ meta <- read_waterdata_monitoring_location(
 # this is the difference btwn drainage area and contrib drainage area
 # not all sites have contrib values and only a few have discrepancies.. will re-visit after regulation filtering
 
+# also add in ref and non-ref designation from gages ii!!!!!
+
 ##------------------------------------------compute regulation metric and remove sites that exceed--------------####
 
 # for now, just pulling in dams metadata from gagesii
 gagesii_meta<- readxl::read_excel("gagesii_data/gagesII_sept30_2011_conterm.xlsx", sheet= "HydroMod_Dams")
+gagesii_class<- readxl::read_excel("gagesii_data/gagesII_sept30_2011_conterm.xlsx", sheet= "Bas_Classif")
 
 #filtering gagesii meta to GL q sites
 gagesii_GL<- gagesii_meta %>% 
+  left_join(gagesii_class, by= "STAID") %>%
   mutate(monitoring_location_id= paste0("USGS-", STAID)) %>% 
-  filter(monitoring_location_id%in%q_sites)
+  filter(monitoring_location_id%in%q_sites) 
+  
 
 
 regulation_metric <- meta %>%
@@ -298,6 +305,7 @@ cleaned_dv_q_annual<- dv_q_annual %>%
 #now meta data from NWIS
 cleaned_meta<- meta %>% 
   filter(monitoring_location_id%in%acceptable_sites)
+
 
 #metadata from gagesii
 cleaned_gagesii_GL<- gagesii_GL %>% 

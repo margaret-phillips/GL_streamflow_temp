@@ -8,6 +8,7 @@ library(tidyverse)
 
 #loading dataframe for signatures
 cleaned_dv_tw<- readRDS("data/processed/cleaned_dv_tw.rds")
+meta<- readRDS("data/processed/cleaned_meta.rds")
 
 ##------------magnitude------------------------------------------------------####
 

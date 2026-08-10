@@ -119,7 +119,8 @@ compute_trends <- function(df, time_col = "water_year") {
 #can functionalize this to use for hydroclimate, streamflow, and temp
 
 streamflow_functions <- list(calculate_percentiles, calculate_FDC, calculate_CV_IQD, 
-                             calculate_q_seasonality, calculate_flow_pulses, calculate_flashiness)
+                             calculate_q_seasonality, calculate_flow_pulses, calculate_flashiness,
+                             calculate_frequency_lows, calculate_frequency_highs)
 
 
 streamflow_output_dfs <- lapply(
@@ -148,7 +149,7 @@ hydroclimate_functions <- list(calculate_air_temp, calculate_prcp_seasonality, c
 
 hydroclimate_output_dfs <- lapply(
   hydroclimate_functions,
-  function(f) f(daymet_annual_clean, save_path = NULL)
+  function(f) f(clean_daymet_annual, save_path = NULL)
 )
 
 hydroclimate_combined_df <- reduce(
@@ -159,6 +160,7 @@ hydroclimate_combined_df <- reduce(
 
 
 hydroclimate_trends<- compute_trends(hydroclimate_combined_df)
+
 
 ##---------------------stream temperature-------------------------------------####
 
@@ -178,6 +180,6 @@ streamtemp_combined_df <- reduce(
 )
 
 streamtemp_trends<- compute_trends(streamtemp_combined_df)
-#not calling stream temp trends. only 5 sites have 25 years of at least on signature
+
 
 
