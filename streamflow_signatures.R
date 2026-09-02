@@ -18,6 +18,15 @@ library(FlowScreen) #package to calculate BFI
 #required columns: q, daily_depth_mm, monitoring_location_id, water_year, doy (day of year), wy_doy
 cleaned_dv_qDepth_annual<- readRDS("data/processed/cleaned_dv_qDepth_annual.rds")
 
+#filtering df for fall:
+fall<- 10:12
+fall_dv_q<- cleaned_dv_qDepth_annual |> 
+  filter(month%in%fall)
+
+#filtering df for summer:
+summer<- 7:9
+summer_dv_q<- cleaned_dv_qDepth_annual |> 
+  filter(month%in%summer)
 
 ##--------streamflow magnitude-----------------------------------------------####
 
@@ -28,8 +37,8 @@ calculate_percentiles<- function(Q_data, save_path){
     
     summarise(
       
-      q10 = quantile(daily_depth_mm, probs = 0.10, na.rm = TRUE),
-      q25 = quantile(daily_depth_mm, probs = 0.25, na.rm = TRUE),
+      q10 = quantile(daily_depth_mm, probs = 0.10, na.rm = TRUE),#this means 90% of data falls above it
+      q25 = quantile(daily_depth_mm, probs = 0.25, na.rm = TRUE), #could consider renaming these to 100- q10= q90 aka flow exceeded 90% of the time
       q50 = quantile(daily_depth_mm, probs = 0.50, na.rm = TRUE),
       q75 = quantile(daily_depth_mm, probs = 0.75, na.rm = TRUE),
       q90 = quantile(daily_depth_mm, probs = 0.90, na.rm = TRUE),
@@ -349,12 +358,12 @@ calculate_frequency_lows<- function(Q_data, save_path = NULL) {
     mutate(q_rel = q / avg_daily_flow) %>%
     mutate(
       low_flow = q_rel < 0.5,
-      event_start = low_flow & !lag(low_flow, default = FALSE)
+      event_start = low_flow & !lag(low_flow, default = FALSE) #could also check the length of low flow events
     ) %>%
     summarise(
       low_frequency = sum(event_start),
       .groups = "drop"
-    )
+    )#could be decreasing in frequency bc increasing in length..
   
   annual_df <-  seasonal_df %>%
     group_by(monitoring_location_id, water_year) %>%

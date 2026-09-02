@@ -218,6 +218,7 @@ dv_q_annual <- dv_q_interp %>%
     doy = yday(time)
   ) 
 
+
 ##----------------------------------create winter-spring dataframe (Jan- May)----------####
 winter_spring<- 1:5
 

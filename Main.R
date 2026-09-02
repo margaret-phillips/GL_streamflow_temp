@@ -10,6 +10,7 @@ library(trend)
 source("streamflow_signatures.R")
 source("hydroclimate_signatures.R")
 source("stream_temperature_signatures.R")
+source("trends.R")
 
 
 # Example: ignore folders and files
@@ -17,106 +18,12 @@ use_git_ignore(c("data/daymet", "notes.txt", "*.csv", ".Rhistory"))
 
 #CREATE FILE DIRECTORIES AND FOLDERS
 
-##-------trends---------------------------------------------------------------####
-
-#move this to a separate script and then source it..?
-
-compute_trends <- function(df, time_col = "water_year") {
-  
-  n_years_df <- df %>%
-    group_by(monitoring_location_id) %>%
-    summarise(
-      n_years = n_distinct(.data[[time_col]]),
-      .groups = "drop"
-    )
-  
-  df_long <- df %>%
-    pivot_longer(
-      cols = -c(monitoring_location_id, all_of(time_col)),
-      names_to = "signature",
-      values_to = "value"
-    )
-  
-  results_long <- df_long %>%
-    group_by(monitoring_location_id, signature) %>%
-    group_modify(~ {
-      
-      df2 <- .x %>%
-        filter(!is.na(value)) %>%
-        group_by(.data[[time_col]]) %>%
-        summarise(
-          value = mean(value),
-          .groups = "drop"
-        ) %>%
-        arrange(.data[[time_col]])
-      
-      n_years_sig <- n_distinct(df2[[time_col]])
-      mean_val <- mean(df2$value, na.rm = TRUE)
-      
-      #only compute trends if >= 10 years
-      if (n_years_sig < 10) {
-        return(tibble(
-          sen_slope = NA_real_,
-          sen_pval = NA_real_,
-          mk_tau = NA_real_,
-          mk_pval = NA_real_,
-          mean_value = mean_val,
-          has_trend = FALSE
-        ))
-      }
-      
-      sen <- trend::sens.slope(df2$value)
-      mk  <- trend::mk.test(df2$value)
-      
-      tibble(
-        sen_slope = sen$estimates,
-        sen_pval = sen$p.value,
-        mk_tau = cor(df2[[time_col]], df2$value, method = "kendall"),
-        mk_pval = mk$p.value,
-        mean_value = mean_val,
-        has_trend = TRUE
-      )
-    }) %>%
-    ungroup()
-  
-  
-  valid_sites <- results_long %>%
-    group_by(monitoring_location_id) %>%
-    summarise(any_trend = any(has_trend), .groups = "drop") %>%
-    filter(any_trend) %>%
-    pull(monitoring_location_id)
-  
-  
-  results_long <- results_long %>%
-    filter(monitoring_location_id %in% valid_sites)
-  
-  
-  results_wide <- results_long %>%
-    select(-has_trend) %>%
-    pivot_wider(
-      names_from = signature,
-      values_from = c(
-        sen_slope,
-        sen_pval,
-        mk_tau,
-        mk_pval,
-        mean_value
-      ),
-      names_sep = "__"
-    )
-  
-  results_final <- results_wide %>%
-    left_join(n_years_df, by = "monitoring_location_id")
-  
-  return(results_final)
-}
-
 
 ##-----------streamflow------------------------------------------------------####
 
 #Call up scripts with downloading and signature functions!
 
-#can functionalize this to use for hydroclimate, streamflow, and temp
+
 
 streamflow_functions <- list(calculate_percentiles, calculate_FDC, calculate_CV_IQD, 
                              calculate_q_seasonality, calculate_flow_pulses, calculate_flashiness,
@@ -134,9 +41,74 @@ streamflow_combined_df <- reduce(
   by = c("monitoring_location_id", "water_year")
 )
 
+#check for missing years within temporal coverage at each site
+#preserve missing years as NA gap to get accurate trends
+library(dplyr)
+library(tidyr)
+
+missing_wy_check <- streamflow_combined_df |>
+  distinct(monitoring_location_id, water_year) |>
+  group_by(monitoring_location_id) |>
+  complete(water_year = seq(min(water_year), max(water_year))) |>
+  filter(is.na(monitoring_location_id)) |>
+  summarise(
+    missing_years = list(water_year),
+    n_missing = n(),
+    .groups = "drop"
+  )
+
+missing_wy_check <- streamflow_combined_df |>
+  distinct(monitoring_location_id, water_year) |>
+  group_by(monitoring_location_id) |>
+  summarise(
+    start_year= min(water_year),
+    end_year= max(water_year),
+    missing_years = list(
+      setdiff(
+        min(water_year):max(water_year),
+        water_year
+      )
+    ),
+    n_missing = lengths(missing_years),
+    .groups = "drop"
+  ) |>
+  filter(n_missing > 0)
+
+#probably want to limit to 60% completeness in the first and last decade 
+site_years <- streamflow_combined_df |>
+  distinct(monitoring_location_id, water_year)
+
+years_to_remove <- site_years |>
+  group_by(monitoring_location_id) |>
+  group_modify(~{
+    
+    yrs <- sort(.x$water_year)
+    
+    first_decade <- min(yrs):(min(yrs) + 9)
+    last_decade  <- (max(yrs) - 9):max(yrs)
+    
+    n_first <- sum(yrs %in% first_decade)
+    n_last  <- sum(yrs %in% last_decade)
+    
+    tibble(
+      water_year = c(
+        if (n_first <= 5) intersect(yrs, first_decade),
+        if (n_last <= 5) intersect(yrs, last_decade)
+      )
+    )
+  }) |>
+  ungroup() |>
+  distinct()
+
+
+streamflow_cleaned <- streamflow_combined_df |>
+  anti_join(
+    years_to_remove,
+    by = c("monitoring_location_id", "water_year")
+  )
 
 #running trends on streamflow signatures
-streamflow_trends<- compute_trends(streamflow_combined_df)
+streamflow_trends<- compute_trends(streamflow_cleaned)
 #save output dataframe
 
 
@@ -173,13 +145,106 @@ streamtemp_output_dfs <- lapply(
   function(f) f(cleaned_dv_tw, save_path = NULL)
 )
 
+
+
 streamtemp_combined_df <- reduce(
   streamtemp_output_dfs,
   full_join,
   by = c("monitoring_location_id", "water_year")
 )
 
-streamtemp_trends<- compute_trends(streamtemp_combined_df)
+missing_wy_check <- streamtemp_combined_df |>
+  distinct(monitoring_location_id, water_year) |>
+  group_by(monitoring_location_id) |>
+  summarise(
+    missing_years = list(
+      setdiff(
+        min(water_year):max(water_year),
+        water_year
+      )
+    ),
+    n_missing = lengths(missing_years),
+    .groups = "drop"
+  ) |>
+  filter(n_missing > 0)
 
+
+site_years <- streamtemp_combined_df |>
+  distinct(monitoring_location_id, water_year)
+
+years_to_remove <- site_years |>
+  group_by(monitoring_location_id) |>
+  group_modify(~{
+    
+    yrs <- sort(.x$water_year)
+    
+    first_decade <- min(yrs):(min(yrs) + 9)
+    last_decade  <- (max(yrs) - 9):max(yrs)
+    
+    n_first <- sum(yrs %in% first_decade)
+    n_last  <- sum(yrs %in% last_decade)
+    
+    tibble(
+      water_year = c(
+        if (n_first <= 5) intersect(yrs, first_decade),
+        if (n_last <= 5) intersect(yrs, last_decade)
+      )
+    )
+  }) |>
+  ungroup() |>
+  distinct()
+
+
+streamtemp_cleaned <- streamtemp_combined_df |>
+  anti_join(
+    years_to_remove,
+    by = c("monitoring_location_id", "water_year")
+  )
+
+
+streamtemp_trends<- compute_trends(streamtemp_cleaned)
+
+##---------------------------seasonal version--------------------------------####
+
+
+
+#Call up scripts with downloading and signature functions!
+
+#can functionalize this to use for hydroclimate, streamflow, and temp
+
+streamflow_functions <- list(calculate_percentiles,
+                              calculate_flow_pulses, calculate_flashiness,
+                             calculate_frequency_lows, calculate_frequency_highs)
+
+
+fall_streamflow_output_dfs <- lapply(
+  streamflow_functions,
+  function(f) f(fall_dv_q, save_path = NULL)
+)
+
+fall_streamflow_combined_df <- reduce(
+  fall_streamflow_output_dfs,
+  full_join,
+  by = c("monitoring_location_id", "water_year")
+)
+
+#check for missing years within temporal coverage at each site
+
+library(dplyr)
+library(tidyr)
+
+
+#probably want to limit to 60% completeness in the first and last decade 
+
+
+fall_streamflow_cleaned <- fall_streamflow_combined_df |>
+  anti_join(
+    years_to_remove,
+    by = c("monitoring_location_id", "water_year")
+  )
+
+#running trends on streamflow signatures
+fall_streamflow_trends<- compute_trends(fall_streamflow_cleaned)
+#save output dataframe
 
 
